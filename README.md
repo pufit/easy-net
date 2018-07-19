@@ -1,2 +1,4 @@
-# tcp-framework
+# easy-tcp
 TCP framework on Twisted
+
+TODO: docs

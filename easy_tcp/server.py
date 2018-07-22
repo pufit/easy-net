@@ -32,7 +32,6 @@ class UserProtocol(Protocol):
     def __init__(self, address: IPv4Address, server):
         self.address = address
         self.log = logging.getLogger(repr((address.host, address.port)))
-        self.log.info('User connected')
         self.server = server
 
         self.user = None
@@ -43,7 +42,12 @@ class UserProtocol(Protocol):
         message = Message.from_json(data)
         self.server.handlers[message.type](message.data, self)
 
+    def connectionMade(self):
+        self.server.on_open_func(self) if self.server.on_open_func else None
+        self.log.info('User connected')
+
     def connectionLost(self, reason=connectionDone):
+        self.server.on_close_func(self, reason) if self.server.on_close_func else None
         self.log.info('Disconnected')
 
     def send_error_message(self, exception):
@@ -59,6 +63,8 @@ class UserProtocol(Protocol):
 
 class ServerFactory(Factory):
     handlers = {}
+    on_close_func = None
+    on_open_func = None
 
     port = None
 
@@ -70,6 +76,30 @@ class ServerFactory(Factory):
                 return func(**data)
 
             self.handlers[event] = wrapper
+            return wrapper
+
+        return decorator
+
+    def on_close(self):
+        def decorator(func):
+            def wrapper(proto, reason):
+                # noinspection PyUnresolvedReferences,PyDunderSlots
+                local.protocol = proto
+                return func(reason)
+
+            self.on_close_func = wrapper
+            return wrapper
+
+        return decorator
+
+    def on_open(self):
+        def decorator(func):
+            def wrapper(proto):
+                # noinspection PyUnresolvedReferences,PyDunderSlots
+                local.protocol = proto
+                return func()
+
+            self.on_open_func = wrapper
             return wrapper
 
         return decorator

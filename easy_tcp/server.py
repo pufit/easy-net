@@ -1,10 +1,11 @@
-from twisted.internet.protocol import Protocol, Factory, error
+from twisted.internet.protocol import Factory, error
+from twisted.protocols.basic import LineReceiver
 from twisted.internet.address import IPv4Address
 from twisted.python import failure
 from twisted.internet import reactor
 from werkzeug.local import Local
-from .models import Message
-from .errors import BaseError
+from models import Message
+from errors import BaseError, UnhandledRequest
 import logging
 
 connectionDone = failure.Failure(error.ConnectionDone())
@@ -27,7 +28,7 @@ def error_cache(func):
     return wrapper
 
 
-class UserProtocol(Protocol):
+class UserProtocol(LineReceiver):
 
     def __init__(self, address: IPv4Address, server):
         self.address = address
@@ -37,10 +38,18 @@ class UserProtocol(Protocol):
         self.user = None
 
     @error_cache
-    def dataReceived(self, data: bytes):
-        self.log.debug('Message %s' % data)
-        message = Message.from_json(data)
-        self.server.handlers[message.type](message.data, self)
+    def lineReceived(self, line):
+        self.log.debug('Message %s' % line)
+        message = Message.from_json(line)
+
+        func = self.server.handlers.get(message.type)
+        if func:
+            func(message.data, self)
+        else:
+            raise UnhandledRequest
+
+    def rawDataReceived(self, data):
+        pass
 
     def connectionMade(self):
         self.server.on_open_func(self) if self.server.on_open_func else None
@@ -58,7 +67,7 @@ class UserProtocol(Protocol):
 
     def send(self, message: Message):
         self.log.debug('Send %s  %s' % (message.type, message.data))
-        self.transport.write(message.dump().encode('utf-8'))
+        self.sendLine(message.dump().encode('utf-8'))
 
 
 class ServerFactory(Factory):

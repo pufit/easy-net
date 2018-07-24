@@ -11,7 +11,7 @@ import logging
 connectionDone = failure.Failure(error.ConnectionDone())
 
 local = Local()
-protocol = local('protocol')
+proxy = local('proxy')
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(name)-24s [LINE:%(lineno)-3s]# %(levelname)-8s [%(asctime)s]  %(message)s')
@@ -36,6 +36,7 @@ class UserProtocol(LineReceiver):
         self.server = server
 
         self.user = None
+        self.protocol = self
 
     @error_cache
     def lineReceived(self, line):
@@ -81,7 +82,7 @@ class ServerFactory(Factory):
         def decorator(func):
             def wrapper(data, proto):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
-                local.protocol = proto
+                local.proxy = proto
                 return func(**data)
 
             self.handlers[event] = wrapper
@@ -93,7 +94,7 @@ class ServerFactory(Factory):
         def decorator(func):
             def wrapper(proto, reason):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
-                local.protocol = proto
+                local.proxy = proto
                 return func(reason)
 
             self.on_close_func = wrapper
@@ -105,7 +106,7 @@ class ServerFactory(Factory):
         def decorator(func):
             def wrapper(proto):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
-                local.protocol = proto
+                local.proxy = proto
                 return func()
 
             self.on_open_func = wrapper

@@ -1,4 +1,4 @@
-from .errors import BadRequest
+from errors import BadRequest
 import json
 
 

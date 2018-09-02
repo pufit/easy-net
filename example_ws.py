@@ -1,7 +1,7 @@
-from easy_tcp.server import LineFactory, protocol
+from easy_tcp.server import WebSocketFactory, protocol
 from easy_tcp.models import Message
 
-server = LineFactory()
+server = WebSocketFactory('ws://0.0.0.0:8000')
 
 
 @server.handle('echo')

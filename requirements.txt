@@ -1,3 +1,4 @@
 setuptools==39.2.0
 twisted==17.5.0
 werkzeug==0.14.1
+autobahn[twisted]

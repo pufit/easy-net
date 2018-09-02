@@ -1,8 +1,9 @@
-from twisted.internet.protocol import Factory, error
+from twisted.internet.protocol import Factory as _Factory, error
 from twisted.protocols.basic import LineReceiver
 from twisted.internet.address import IPv4Address
 from twisted.python import failure
 from twisted.internet import reactor
+from autobahn.twisted.websocket import WebSocketServerFactory as _WebSocketServerFactory, WebSocketServerProtocol
 from werkzeug.local import Local
 from models import Message
 from errors import BaseError, UnhandledRequest
@@ -12,9 +13,6 @@ connectionDone = failure.Failure(error.ConnectionDone())
 
 local = Local()
 protocol = local('protocol')
-
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(name)-24s [LINE:%(lineno)-3s]# %(levelname)-8s [%(asctime)s]  %(message)s')
 log = logging.getLogger('GLOBAL')
 
 
@@ -28,22 +26,18 @@ def error_cache(func):
     return wrapper
 
 
-class UserProtocol(LineReceiver):
+class AbstractProtocol:
 
     def __init__(self, address: IPv4Address, server):
         self.address = address
-        self.log = logging.getLogger(repr((address.host, address.port)))
+        self.console = logging.getLogger(repr((address.host, address.port)))
         self.server = server
 
         self.user = None
 
-    def copy(self):
-        return self
-
     @error_cache
-    def lineReceived(self, line):
-        self.log.debug('Message %s' % line)
-        message = Message.from_json(line)
+    def handle_message(self, message: Message):
+        self.console.debug('Message %s' % message)
 
         func = self.server.handlers.get(message.type)
         if func:
@@ -51,16 +45,21 @@ class UserProtocol(LineReceiver):
         else:
             raise UnhandledRequest
 
-    def rawDataReceived(self, data):
-        pass
+    def on_message(self, data, is_binary=True):
+        if is_binary:
+            return self.handle_message(Message.from_bytes(data))
+        return self.handle_message(Message.from_json(data))
 
-    def connectionMade(self):
+    def copy(self):
+        return self
+
+    def connection_made(self):
         self.server.on_open_func(self) if self.server.on_open_func else None
-        self.log.info('User connected')
+        self.console.info('User connected')
 
-    def connectionLost(self, reason=connectionDone):
+    def connection_lost(self, reason=connectionDone):
         self.server.on_close_func(self, reason) if self.server.on_close_func else None
-        self.log.info('Disconnected')
+        self.console.info('Disconnected')
 
     def send_error_message(self, exception):
         self.send(Message('error', {
@@ -69,16 +68,56 @@ class UserProtocol(LineReceiver):
         }))
 
     def send(self, message: Message):
-        self.log.debug('Send %s  %s' % (message.type, message.data))
+        self.console.debug('Send %s' % message)
+
+
+class LineProtocol(AbstractProtocol, LineReceiver):
+
+    def lineReceived(self, line):
+        self.on_message(line)
+
+    def rawDataReceived(self, data):
+        pass
+
+    def connectionMade(self):
+        self.connection_made()
+
+    def connectionLost(self, reason=connectionDone):
+        self.connection_lost()
+
+    def send(self, message: Message):
+        super().send(message)
         self.sendLine(message.dump().encode('utf-8'))
 
 
-class ServerFactory(Factory):
+class WebSocketProtocol(WebSocketServerProtocol, AbstractProtocol):
+
+    def __init__(self, addr, server):
+        WebSocketServerProtocol.__init__(self)
+        AbstractProtocol.__init__(self, addr, server)
+        self.factory = server
+
+    def onConnect(self, request):
+        self.connection_made()
+
+    def onClose(self, was_clean, code, reason):
+        self.connection_lost(reason)
+
+    def onMessage(self, payload, is_binary):
+        self.on_message(payload, is_binary)
+
+    def send(self, message: Message):
+        super().send(message)
+        self.sendMessage(message.dump().encode('utf-8'))
+
+
+class AbstractFactory:
     handlers = {}
     on_close_func = None
     on_open_func = None
 
-    port = None
+    def __init__(self, proto=LineProtocol):
+        self.protocol = proto
 
     def handle(self, event):
         def decorator(func):
@@ -116,13 +155,27 @@ class ServerFactory(Factory):
 
         return decorator
 
-    def buildProtocol(self, addr: IPv4Address) -> UserProtocol:
+    def build_protocol(self, addr: IPv4Address) -> AbstractProtocol:
         proto = self.protocol(addr, self)
         return proto
 
     def run(self, port=8956):
-        port = port if not self.port else self.port
-        self.protocol = UserProtocol
+        logging.basicConfig(level=logging.DEBUG,
+                            format='%(name)-24s [LINE:%(lineno)-3s]# %(levelname)-8s [%(asctime)s]  %(message)s')
         reactor.listenTCP(port, self)
         log.info('Start server at %s' % port)
         reactor.run()
+
+
+class LineFactory(_Factory, AbstractFactory):
+    def buildProtocol(self, addr: IPv4Address) -> AbstractProtocol:
+        return self.build_protocol(addr)
+
+
+class WebSocketFactory(_WebSocketServerFactory, AbstractFactory):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.protocol = WebSocketProtocol
+
+    def buildProtocol(self, addr: IPv4Address) -> AbstractProtocol:
+        return self.build_protocol(addr)

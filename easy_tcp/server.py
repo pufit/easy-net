@@ -7,12 +7,15 @@ from autobahn.twisted.websocket import WebSocketServerFactory as _WebSocketServe
 from werkzeug.local import Local
 from models import Message
 from errors import BaseError, UnhandledRequest
+from collections import defaultdict
 import logging
 
 connectionDone = failure.Failure(error.ConnectionDone())
 
 local = Local()
 protocol = local('protocol')
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(name)-24s [LINE:%(lineno)-3s]# %(levelname)-8s [%(asctime)s]  %(message)s')
 log = logging.getLogger('GLOBAL')
 
 
@@ -34,15 +37,16 @@ class AbstractProtocol:
         self.server = server
 
         self.user = None
+        self.event_type = None
 
     @error_cache
     def handle_message(self, message: Message):
         self.console.debug('Message %s' % message)
 
-        func = self.server.handlers.get(message.type)
-        if func:
-            func(message.data, self)
-        else:
+        funcs = self.server.handlers[message.type]
+        for func in funcs:
+            func(message.data, self, message.type)
+        if not funcs:
             raise UnhandledRequest
 
     def on_message(self, data, is_binary=True):
@@ -112,7 +116,7 @@ class WebSocketProtocol(WebSocketServerProtocol, AbstractProtocol):
 
 
 class AbstractFactory:
-    handlers = {}
+    handlers = defaultdict(lambda: [])
     on_close_func = None
     on_open_func = None
 
@@ -120,13 +124,17 @@ class AbstractFactory:
         self.protocol = proto
 
     def handle(self, event):
-        def decorator(func):
-            def wrapper(data, proto):
+        if isinstance(event, str):
+            event = list(event)
+
+        def decorator(func: function):
+            def wrapper(data, proto, event_type):
+                proto.event_type = event_type
                 # noinspection PyUnresolvedReferences,PyDunderSlots
                 local.protocol = proto
                 return func(**data)
-
-            self.handlers[event] = wrapper
+            for e in event:
+                self.handlers[e].append(wrapper)
             return wrapper
 
         return decorator
@@ -159,11 +167,12 @@ class AbstractFactory:
         proto = self.protocol(addr, self)
         return proto
 
-    def run(self, port=8956):
-        logging.basicConfig(level=logging.DEBUG,
-                            format='%(name)-24s [LINE:%(lineno)-3s]# %(levelname)-8s [%(asctime)s]  %(message)s')
+    def prepare(self, port):
         reactor.listenTCP(port, self)
-        log.info('Start server at %s' % port)
+        log.info('Listen %s server at %s' % (self.protocol, port))
+
+    def run(self, port=8956):
+        self.prepare(port)
         reactor.run()
 
 

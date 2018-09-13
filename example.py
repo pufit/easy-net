@@ -6,7 +6,16 @@ server = LineFactory()
 
 @server.handle('echo')
 def echo(msg: str):
-    protocol.send(Message('echo_resp', msg))
+    protocol.send(Message('echo_resp', {
+        'msg': msg
+    }))
+
+
+@server.handle(['test1', 'test2', 'test3'])
+def test():
+    protocol.send(Message(protocol.event_type, {
+        'msg': 'it works'
+    }))
 
 
 if __name__ == '__main__':

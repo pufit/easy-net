@@ -14,7 +14,7 @@ setup(
     description='This is a simple wrapper for Twisted TCP',
     url='https://github.com/pufit/easy-tcp',
     author='pufit',
-    author_email='budanov01@bk.ru',
+    author_email='albrustovetskiy@edu.hse.ru',
     license='MIT',
     classifiers=[
         'Development Status :: 3 - Alpha',

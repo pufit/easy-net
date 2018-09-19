@@ -1,12 +1,20 @@
 from errors import BadRequest
 import json
+import attr
 
 
+@attr.s
 class Message:
 
-    def __init__(self, message_type: str, data=None):
-        self.type = message_type
-        self.data = data if data else {}
+    type = attr.ib(type=str)
+    data = attr.ib(factory=dict)
+
+    @data.validator
+    @type.validator
+    def check_type(self, attribute, value):
+        if attribute.name == 'type' and (not value or not isinstance(value, str)) or \
+                attribute.name == 'data' and not isinstance(value, dict):
+            raise BadRequest
 
     @classmethod
     def from_bytes(cls, message: bytes):
@@ -19,15 +27,7 @@ class Message:
         except (ValueError, UnicodeDecodeError):
             raise BadRequest
         message_type = message_dict.get('type')
-        if not message_type:
-            raise BadRequest
         return cls(message_type, message_dict.get('data'))
 
     def dump(self):
-        return json.dumps({
-            'type': self.type,
-            'data': self.data
-        })
-
-    def __repr__(self):
-        return '<Message %s,  %s>' % (self.type, self.data)
+        return attr.asdict(self)

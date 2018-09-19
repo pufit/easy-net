@@ -1,4 +1,5 @@
 # easy-tcp
-TCP framework on Twisted
+
+This is a simple wrapper for Twisted framework
 
 TODO: docs

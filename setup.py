@@ -1,9 +1,8 @@
 from setuptools import setup
 
 setup(
-    name='easy-net',
-    version='1.1',
-    py_modules=['easy_net'],
+    name='easy_net',
+    version='1.2.1',
     install_requires=[
         'attrs>=18.2.0',
         'setuptools>=39.2.0',

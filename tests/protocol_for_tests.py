@@ -34,14 +34,11 @@ async def send_users(message):
     }))
 
 
-@server.on_open()
-async def get_users():
-    data = await protocol.send(Message('get_users'))
-    print(data['users'])
-    protocol.server(Message(
-        'received_users',
-        data=list(data['users'])
-    ))
+@server.handle('test_await')
+async def get_users(_):
+    message = await protocol.send(Message('get_users'))
+    print(message.data['users'])
+    protocol.response(message, Message('received_users'))
 
 
 if __name__ == '__main__':

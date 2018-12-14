@@ -46,7 +46,7 @@ class AbstractProtocol:
         callbacks = self.server.callbacks[message.callback]
         if callbacks:
             for i in range(len(callbacks)):
-                callbacks.pop(i).callback(message.data)
+                callbacks.pop(i).callback(message)
             return
 
         funcs = self.server.handlers[message.type]
@@ -136,6 +136,7 @@ class AbstractFactory:
 
     def __init__(self, proto=LineProtocol):
         self.protocol = proto
+        self.port = None
 
     def handle(self, event):
         if isinstance(event, str):
@@ -145,7 +146,7 @@ class AbstractFactory:
             def wrapper(message: 'Message', proto: 'AbstractProtocol'):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
                 local.protocol = proto
-                d = func(message) if func.__code__.co_varnames else func()
+                d = func(message)
                 return defer.ensureDeferred(d)
 
             for e in event:
@@ -184,7 +185,7 @@ class AbstractFactory:
         return proto
 
     def prepare(self, port):
-        reactor.listenTCP(port, self)
+        self.port = reactor.listenTCP(port, self)
         log.info('Listen %s server at %s' % (self.protocol, port))
 
     def run(self, port=8956):

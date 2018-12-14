@@ -1,21 +1,43 @@
-from easy_tcp.server import LineFactory, protocol
-from easy_tcp.models import Message
+from easy_net.server import LineFactory, protocol
+from easy_net.models import Message
 
 server = LineFactory()
 
 
 @server.handle('echo')
-def echo(msg: str):
+async def echo(message):
     protocol.send(Message('echo_resp', {
-        'msg': msg
+        'msg': message.data['msg']
     }))
 
 
 @server.handle(['test1', 'test2', 'test3'])
-def test():
-    protocol.send(Message(protocol.event_type, {
+async def test(message):
+    protocol.send(Message(message.type, {
         'msg': 'it works'
     }))
+
+
+@server.handle('get_users')
+async def send_users(message):
+    protocol.response(message, Message('users', {
+        'users': [
+            {
+                'name': 'Dr. Clef',
+                'age': 'CLASSIFIED'
+            },
+            {
+                'name': 'Dr. Bright',
+                'age': 'CLASSIFIED'
+            }
+        ]
+    }))
+
+
+@server.on_open()
+async def get_users():
+    data = await protocol.send(Message('get_users'))
+    print(data['users'])
 
 
 if __name__ == '__main__':

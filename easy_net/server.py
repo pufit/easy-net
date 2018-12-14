@@ -1,19 +1,20 @@
+from autobahn.twisted.websocket import WebSocketServerFactory as _WebSocketServerFactory, \
+    WebSocketServerProtocol
 from twisted.internet.protocol import Factory as _Factory, error
 from twisted.protocols.basic import LineReceiver
 from twisted.internet.address import IPv4Address
 from twisted.python import failure
-from twisted.internet import reactor
-from autobahn.twisted.websocket import WebSocketServerFactory as _WebSocketServerFactory, WebSocketServerProtocol
+from twisted.internet import reactor, defer
 from werkzeug.local import Local
-from models import Message
-from errors import BaseError, UnhandledRequest
+from .models import Message, TempDict
+from .errors import BaseError, UnhandledRequest
 from collections import defaultdict
 import logging
 
 connectionDone = failure.Failure(error.ConnectionDone())
 
 local = Local()
-protocol = local('protocol')
+protocol: 'AbstractProtocol' = local('protocol')
 logging.basicConfig(level=logging.DEBUG,
                     format='%(name)-24s [LINE:%(lineno)-3s]# %(levelname)-8s [%(asctime)s]  %(message)s')
 log = logging.getLogger('GLOBAL')
@@ -31,21 +32,26 @@ def error_cache(func):
 
 class AbstractProtocol:
 
-    def __init__(self, address: IPv4Address, server):
+    def __init__(self, address: IPv4Address, server: 'AbstractFactory'):
         self.address = address
         self.console = logging.getLogger(repr((address.host, address.port)))
         self.server = server
 
         self.user = None
-        self.event_type = None
 
     @error_cache
     def handle_message(self, message: Message):
         self.console.debug('Message %s' % message)
 
+        callbacks = self.server.callbacks[message.callback]
+        if callbacks:
+            for i in range(len(callbacks)):
+                callbacks.pop(i).callback(message.data)
+            return
+
         funcs = self.server.handlers[message.type]
         for func in funcs:
-            func(message.data, self, message.type)
+            func(message, self)
         if not funcs:
             raise UnhandledRequest
 
@@ -71,8 +77,15 @@ class AbstractProtocol:
             'message': exception.message
         }))
 
+    def response(self, to: Message, message: Message):
+        message.callback = to.callback
+        return self.send(message)
+
     def send(self, message: Message):
         self.console.debug('Send %s' % message)
+        d = defer.Deferred()
+        self.server.callbacks[message.callback].append(d)
+        return d
 
 
 class LineProtocol(AbstractProtocol, LineReceiver):
@@ -90,8 +103,8 @@ class LineProtocol(AbstractProtocol, LineReceiver):
         self.connection_lost()
 
     def send(self, message: Message):
-        super().send(message)
         self.sendLine(message.dump().encode('utf-8'))
+        return super().send(message)
 
 
 class WebSocketProtocol(WebSocketServerProtocol, AbstractProtocol):
@@ -111,12 +124,13 @@ class WebSocketProtocol(WebSocketServerProtocol, AbstractProtocol):
         self.on_message(payload, is_binary)
 
     def send(self, message: Message):
-        super().send(message)
         self.sendMessage(message.dump().encode('utf-8'))
+        return super().send(message)
 
 
 class AbstractFactory:
     handlers = defaultdict(lambda: [])
+    callbacks = TempDict()
     on_close_func = None
     on_open_func = None
 
@@ -125,14 +139,15 @@ class AbstractFactory:
 
     def handle(self, event):
         if isinstance(event, str):
-            event = list(event)
+            event = [event]
 
-        def decorator(func: function):
-            def wrapper(data, proto, event_type):
-                proto.event_type = event_type
+        def decorator(func: callable):
+            def wrapper(message: 'Message', proto: 'AbstractProtocol'):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
                 local.protocol = proto
-                return func(**data)
+                d = func(message) if func.__code__.co_varnames else func()
+                return defer.ensureDeferred(d)
+
             for e in event:
                 self.handlers[e].append(wrapper)
             return wrapper
@@ -144,7 +159,8 @@ class AbstractFactory:
             def wrapper(proto, reason):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
                 local.protocol = proto
-                return func(reason)
+                d = func(reason) if func.__code__.co_varnames else func()
+                return defer.ensureDeferred(d)
 
             self.on_close_func = wrapper
             return wrapper
@@ -156,7 +172,7 @@ class AbstractFactory:
             def wrapper(proto):
                 # noinspection PyUnresolvedReferences,PyDunderSlots
                 local.protocol = proto
-                return func()
+                return defer.ensureDeferred(func())
 
             self.on_open_func = wrapper
             return wrapper

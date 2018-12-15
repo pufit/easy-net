@@ -6,14 +6,14 @@ server = LineFactory()
 
 @server.handle('echo')
 async def echo(message):
-    protocol.send(Message('echo_resp', {
+    protocol.response(message, Message('echo_resp', {
         'msg': message.data['msg']
     }))
 
 
 @server.handle(['test1', 'test2', 'test3'])
 async def event_type(message):
-    protocol.send(Message(message.type, {
+    protocol.response(message, Message(message.type, {
         'msg': 'it works'
     }))
 
